@@ -5,14 +5,23 @@
   "main": "index.js",
   "scripts": {
     "experiment": "ts-node experiment.ts",
+    "pubkey_to_address": "ts-node pubkey_to_address.ts",
+    "exp": "ts-node exp.ts",
+    "exp2": "ts-node test.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "B9lab",
   "license": "ISC",
   "devDependencies": {
+    "@types/node": "^20.11.13",
     "ts-node": "10.7.0"
   },
   "dependencies": {
-    "@cosmjs/stargate": "0.28.2"
+    "@cosmjs/launchpad": "^0.27.1",
+    "@cosmjs/proto-signing": "^0.32.2",
+    "@cosmjs/stargate": "^0.32.2",
+    "@tendermint/sig": "^0.6.0",
+    "axios": "^1.6.7",
+    "cosmwasm": "^1.1.1"
   }
 }

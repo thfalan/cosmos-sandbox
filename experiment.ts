@@ -1,56 +1,101 @@
 import { readFile } from "fs/promises"
-import { DirectSecp256k1HdWallet, OfflineDirectSigner } from "@cosmjs/proto-signing"
-import { IndexedTx, SigningStargateClient, StargateClient } from "@cosmjs/stargate"
+import { DirectSecp256k1HdWallet, OfflineDirectSigner, makeSignDoc  } from "@cosmjs/proto-signing"
+import { IndexedTx, SigningStargateClient, StargateClient, StdFee, GasPrice } from "@cosmjs/stargate"
 import { MsgSend } from "cosmjs-types/cosmos/bank/v1beta1/tx"
 import { Tx } from "cosmjs-types/cosmos/tx/v1beta1/tx"
+import axios from 'axios'
+import { coins } from "@cosmjs/launchpad";
+import { createAddress, createWalletFromMnemonic, signTx } from '@tendermint/sig';
 
-const rpc = "https://rpc.sentry-01.theta-testnet.polypore.xyz"
+const mnemonic = 'reason comfort usage fix ship nuclear cream father human enjoy exhaust vote bitter cement hamster rose remove jealous awkward actress fiscal rather lumber fox';
+
+const wallet = createWalletFromMnemonic(mnemonic);
+
+const rpcEndpoint = "http://sentry0.testnet.mantrachain.io:26657";
+const apiEndpoint = "https://api.testnet.mantrachain.io/cosmos/tx/v1beta1/txs";
 
 const getAliceSignerFromMnemonic = async (): Promise<OfflineDirectSigner> => {
     return DirectSecp256k1HdWallet.fromMnemonic((await readFile("./testnet.alice.mnemonic.key")).toString(), {
-        prefix: "cosmos",
+        prefix: "mantra",
     })
 }
 
+const broadcastTx = async (txBytesBase64: any) => {
+    const broadcastBody = {
+        tx_bytes: txBytesBase64,
+        mode: "BROADCAST_MODE_SYNC" // or BROADCAST_MODE_SYNC or BROADCAST_MODE_ASYNC
+    };
+
+    try {
+        const response = await axios.post(apiEndpoint, broadcastBody, {
+            headers: {
+                'Content-Type': 'application/json',
+                'accept': 'application/json',
+            },
+        });
+
+        return response.data;
+    } catch (error) {
+        console.error('Error broadcasting transaction:', error);
+    }
+};
+
 const runAll = async (): Promise<void> => {
-    const client = await StargateClient.connect(rpc)
-    console.log("With client, chain id:", await client.getChainId(), ", height:", await client.getHeight())
+    const client = await StargateClient.connect(rpcEndpoint);
+    console.log("With client, chain id:", await client.getChainId(), ", height:", await client.getHeight());
     console.log(
         "Alice balances:",
-        await client.getAllBalances("cosmos17tvd4hcszq7lcxuwzrqkepuau9fye3dal606zf")
-    )
-    const faucetTx: IndexedTx = (await client.getTx(
-        "540484BDD342702F196F84C2FD42D63FA77F74B26A8D7383FAA5AB46E4114A9B"
-    ))!
-    console.log("Faucet Tx:", faucetTx)
-    const decodedTx: Tx = Tx.decode(faucetTx.tx)
-    console.log("DecodedTx:", decodedTx)
-    console.log("Decoded messages:", decodedTx.body!.messages)
-    const sendMessage: MsgSend = MsgSend.decode(decodedTx.body!.messages[0].value)
-    console.log("Sent message:", sendMessage)
-    const faucet: string = sendMessage.fromAddress
-    console.log("Faucet balances:", await client.getAllBalances(faucet))
+        await client.getAllBalances("mantra1kt020racf4prpjz7jlnzs4z6l0xval0vf5jxww")
+    );
 
-    // Get the faucet address another way
-    {
-        const rawLog = JSON.parse(faucetTx.rawLog)
-        console.log("Raw log:", JSON.stringify(rawLog, null, 4))
-        const faucet: string = rawLog[0].events
-            .find((eventEl: any) => eventEl.type === "coin_spent")
-            .attributes.find((attribute: any) => attribute.key === "spender").value
-        console.log("Faucet address from raw log:", faucet)
+    const aliceSigner: OfflineDirectSigner = await getAliceSignerFromMnemonic();
+    const aliceAccountInfo = (await aliceSigner.getAccounts())[0];
+    const aliceAddress = aliceAccountInfo.address;
+    console.log("Alice's address from signer", aliceAddress);
+
+    /*
+    const alicePubkey = aliceAccountInfo.pubkey;
+    if (alicePubkey) {
+        // Convert the Uint8Array to a hex string.
+        const alicePubkeyHex = Buffer.from(alicePubkey).toString('hex');
+        console.log("Alice's public key (Uint8Array)", alicePubkey);
+        console.log("Alice's public key (hex)", alicePubkeyHex);
+    } else {
+        console.log("Alice's public key is not available");
     }
+    */
 
-    const aliceSigner: OfflineDirectSigner = await getAliceSignerFromMnemonic()
-    const alice = (await aliceSigner.getAccounts())[0].address
-    console.log("Alice's address from signer", alice)
-    const signingClient = await SigningStargateClient.connectWithSigner(rpc, aliceSigner)
-    console.log(
-        "With signing client, chain id:",
-        await signingClient.getChainId(),
-        ", height:",
-        await signingClient.getHeight()
-    )
-}
+    const tx = {
+        fee:  {
+            amount: [{ amount: '0', denom: 'uaum' }],
+            gas:    '10000'
+        },
+        memo: '',
+        msg:  [{
+            type:  'cosmos-sdk/MsgSend',
+            value: {
+                from_address: 'mantra14h6q6wrdct902et3p4khhdjhv59s9z0fwdf5hh',
+                to_address:   'mantra1kt020racf4prpjz7jlnzs4z6l0xval0vf5jxww',
+                amount:       [{ amount: '1000', denom: 'uaum' }]
+            }
+        }]
+    };
+
+    let chainId = await client.getChainId();
+    console.log("Chain ID: " + chainId)
+    const signMeta = {
+        account_number: '1',
+        chain_id:       chainId,
+        sequence:       '0'
+    };
+    
+    const stdTx = signTx(tx, signMeta, wallet);
+    console.log(JSON.stringify(stdTx));
+    const txBytesBase64 = Buffer.from(JSON.stringify(stdTx)).toString('base64');
+    const result = await broadcastTx(txBytesBase64);
+    
+    console.log(result);
+    
+};
 
 runAll()
